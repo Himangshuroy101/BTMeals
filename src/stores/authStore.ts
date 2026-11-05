@@ -55,8 +55,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (data) => {
     try {
       set({ isLoading: true, error: null });
-      await authAPI.register(data);
-      set({ isLoading: false });
+      const response = await authAPI.register(data);
+      if (response.accessToken && response.refreshToken) {
+        await tokenStorage.setTokens(response.accessToken, response.refreshToken);
+      }
+      set({
+        user: response.user || null,
+        isAuthenticated: !!response.accessToken,
+        isLoading: false,
+      });
     } catch (error: any) {
       const message = error.response?.data?.error || 'Registration failed. Please try again.';
       set({ error: message, isLoading: false });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { Colors, BorderRadius, Typography, Spacing } from '../../constants/theme';
 
 interface BadgeProps {
@@ -7,7 +7,7 @@ interface BadgeProps {
   color?: string;
   bgColor?: string;
   size?: 'sm' | 'md';
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const Badge: React.FC<BadgeProps> = ({

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
 import { prisma } from '../config/database';
+import { resolveActiveRoles } from '../utils/roleResolver';
 
 // Extend Express Request to include user info
 declare global {
@@ -33,20 +34,25 @@ export const authenticate = async (
     const token = authHeader.split(' ')[1];
     const payload = verifyAccessToken(token);
 
-    // Fetch active roles for the user
+    // Fetch active roles for the user and resolve against validity windows
     const userRoles = await prisma.userRole.findMany({
       where: {
         userId: payload.userId,
         hostelId: payload.hostelId,
         isActive: true,
       },
-      select: { role: true },
+      select: {
+        role: true,
+        year: true,
+        month: true,
+        isActive: true,
+      },
     });
 
     req.user = {
       userId: payload.userId,
       hostelId: payload.hostelId,
-      roles: userRoles.map((ur: { role: string }) => ur.role),
+      roles: resolveActiveRoles(userRoles),
     };
 
     next();

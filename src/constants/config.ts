@@ -8,7 +8,7 @@
 //   : 'https://your-oracle-cloud-domain.com/api';
 
 export const API_BASE_URL = __DEV__
-  ? 'http://192.168.31.81:3000/api'  // Your PC's local IP — update if it changes
+  ? 'http://192.168.29.128:3000/api'  // Your PC's local IP — update if it changes
   : 'https://your-oracle-cloud-domain.com/api';
 
 // Meal slot cutoff times (for display purposes)

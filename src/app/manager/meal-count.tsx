@@ -13,7 +13,7 @@ import { mealsAPI } from '../../api/meals';
 const TODAY = new Date().toISOString().split('T')[0];
 
 export default function MealCountScreen() {
-  const [slots, setSlots] = useState<any[]>([{ id: null, name: 'Loading...' }]);
+  const [slots, setSlots] = useState<any[]>([]);
   const [counts, setCounts] = useState<Record<string, any>>({});
   const [students, setStudents] = useState<Record<string, any[]>>({});
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   countCard: { flex: 1, borderRadius: BorderRadius.xl, borderWidth: 1, padding: Spacing.lg, alignItems: 'center', overflow: 'hidden', backgroundColor: Colors.background.secondary },
   countValue: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.extrabold, marginVertical: 4 },
   countLabel: { fontSize: Typography.size.xs, color: Colors.text.tertiary, fontWeight: Typography.weight.medium },
-  listTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: Colors.text.secondary, marginBottom: Spacing.md, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: Typography.size.sm },
+  listTitle: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Colors.text.secondary, marginBottom: Spacing.md, textTransform: 'uppercase', letterSpacing: 0.4 },
   emptyCard: { alignItems: 'center', padding: Spacing['2xl'] },
   emptyText: { fontSize: Typography.size.sm, color: Colors.text.tertiary, marginTop: Spacing.md, textAlign: 'center' },
   studentCard: { marginBottom: Spacing.sm },

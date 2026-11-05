@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { userService } from '../services/user.service';
 import { authenticate } from '../middleware/auth';
-import { requireMaintenancePrefect, requireMessPrefect } from '../middleware/roleGuard';
+import { requireMaintenancePrefect, requireRole } from '../middleware/roleGuard';
 import { validateBody } from '../middleware/validate';
 import { updateProfileSchema } from '../utils/validators';
 
@@ -83,8 +83,8 @@ router.put('/:id/suspend', requireMaintenancePrefect, async (req: Request, res: 
   }
 });
 
-// GET /api/users - List all approved users (Maintenance Prefect OR Mess Prefect)
-router.get('/', requireMessPrefect, async (req: Request, res: Response) => {
+// GET /api/users - List all approved users (Maintenance Prefect, Mess Prefect, Super Admin)
+router.get('/', requireRole('SUPER_ADMIN', 'MESS_PREFECT', 'MAINTENANCE_PREFECT'), async (req: Request, res: Response) => {
   try {
     const users = await userService.getApprovedUsers(req.user!.hostelId);
     res.json(users);

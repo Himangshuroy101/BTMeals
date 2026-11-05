@@ -1,12 +1,12 @@
 import { prisma } from '../config/database';
+import { toUTCDate } from './meal.service';
 
 export class AttendanceService {
   /**
    * Get attendance list for a meal (with student details)
    */
   async getAttendanceList(hostelId: string, date: string, mealSlotId: string) {
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = toUTCDate(date);
 
     // Get existing attendance records
     const existingAttendance = await prisma.mealAttendance.findMany({
@@ -51,8 +51,7 @@ export class AttendanceService {
     }>;
     markedBy: string;
   }) {
-    const targetDate = new Date(data.date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = toUTCDate(data.date);
 
     const results = await Promise.all(
       data.attendance.map((record) =>

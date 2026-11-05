@@ -55,7 +55,7 @@ export interface MealSlotStatus {
   cutoffTime: string;
   isOn: boolean;
   preference: MealPreference;
-  source: 'override' | 'default' | 'none';
+  source: 'preference' | 'override' | 'default' | 'none';
 }
 
 export interface DayMealStatus {

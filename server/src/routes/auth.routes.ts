@@ -15,10 +15,10 @@ const router = Router();
 // POST /api/auth/register
 router.post('/register', validateBody(registerSchema), async (req: Request, res: Response) => {
   try {
-    const user = await authService.register(req.body);
+    const result = await authService.register(req.body);
     res.status(201).json({
       message: 'Registration successful. Waiting for approval.',
-      user,
+      ...result,
     });
   } catch (error: any) {
     const errorMap: Record<string, { status: number; message: string }> = {

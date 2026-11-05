@@ -76,7 +76,19 @@ export class AuthService {
       },
     });
 
-    return user;
+    const tokens = generateTokenPair({
+      userId: user.id,
+      hostelId: hostel.id,
+    });
+
+    return {
+      user: {
+        ...user,
+        hostel: { id: hostel.id, name: hostel.name, code: hostel.code },
+        roles: [],
+      },
+      ...tokens,
+    };
   }
 
   /**

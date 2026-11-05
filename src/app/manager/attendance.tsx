@@ -30,20 +30,32 @@ export default function AttendanceScreen() {
       setSlots(slotList);
       const firstSlot = slotList[0]?.id || null;
       setSelectedSlot(firstSlot);
-      if (firstSlot) await fetchStudents(firstSlot, slotList);
+      if (firstSlot) await fetchStudents(firstSlot);
     } catch (e) {} finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const fetchStudents = async (slotId: string, slotList?: any[]) => {
+  const fetchStudents = async (slotId: string) => {
     try {
-      const list = await mealsAPI.getStudentsWithMealOn(TODAY, slotId);
+      const [list, existingRes] = await Promise.all([
+        mealsAPI.getStudentsWithMealOn(TODAY, slotId),
+        apiClient.get(`/attendance/${TODAY}/${slotId}`).catch(() => ({ data: [] })),
+      ]);
       setStudents(list);
-      // Initialize all as present by default
+
+      const existingRecords: any[] = existingRes.data || [];
+      const existingMap: Record<string, boolean> = {};
+      existingRecords.forEach(r => {
+        existingMap[r.userId] = r.wasPresent;
+      });
+
+      // Pre-fill from existing records if available; otherwise default to present (true)
       const initAttendance: Record<string, boolean> = {};
-      list.forEach((s: any) => { initAttendance[s.id] = true; });
+      list.forEach((s: any) => {
+        initAttendance[s.id] = existingMap[s.id] !== undefined ? existingMap[s.id] : true;
+      });
       setAttendance(initAttendance);
     } catch (e) {}
   };

@@ -1,19 +1,53 @@
 import { prisma } from '../config/database';
 
-/** Get the LOCAL date string YYYY-MM-DD from a JS Date (uses device/server local timezone) */
-function localDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/** Get current date/time components formatted in IST (Asia/Kolkata) */
+function getISTParts(d: Date = new Date()): { dateStr: string; hour: number; minute: number } {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(d);
+  let year = '', month = '', day = '', hour = '0', minute = '0';
+  for (const p of parts) {
+    if (p.type === 'year') year = p.value;
+    if (p.type === 'month') month = p.value;
+    if (p.type === 'day') day = p.value;
+    if (p.type === 'hour') hour = p.value;
+    if (p.type === 'minute') minute = p.value;
+  }
+  return {
+    dateStr: `${year}-${month}-${day}`,
+    hour: parseInt(hour, 10),
+    minute: parseInt(minute, 10),
+  };
+}
+
+/** Get IST date string YYYY-MM-DD */
+export function istDateStr(d: Date = new Date()): string {
+  return getISTParts(d).dateStr;
+}
+
+/** Check if cutoff time (HH:mm format) has already passed in IST */
+export function isCutoffPassedIST(cutoffTime: string, now: Date = new Date()): boolean {
+  const [cutoffHour, cutoffMin] = cutoffTime.split(':').map(Number);
+  const { hour, minute } = getISTParts(now);
+  if (hour > cutoffHour) return true;
+  if (hour === cutoffHour && minute >= cutoffMin) return true;
+  return false;
 }
 
 /**
  * Convert a YYYY-MM-DD string to a UTC midnight Date.
  * Prisma @db.Date fields store dates in UTC — always use UTC midnight
- * so that '2026-05-25' is stored/queried as '2026-05-25', not the day before.
+ * so that '2026-05-25' is stored/queried consistently as '2026-05-25'.
  */
-function toUTCDate(dateStr: string): Date {
+export function toUTCDate(dateStr: string): Date {
   return new Date(dateStr + 'T00:00:00.000Z');
 }
 
@@ -64,21 +98,21 @@ export class MealService {
     // 4. For each slot, find the most recent effective preference
     const slots = await Promise.all(
       mealSlots.map(async (slot: { id: string; name: string; cutoffTime: string }) => {
-        // "Effective From" query: find the most recent preference where effectiveFrom ≤ date
+        // "Effective From" query: find the most recent preference where effectiveFrom <= date
         const preference = await prisma.mealPreference.findFirst({
           where: {
             userId,
             mealSlotId: slot.id,
-            effectiveFrom: { lte: date },  // On or before this date
+            effectiveFrom: { lte: date },
           },
-          orderBy: { effectiveFrom: 'desc' },  // Most recent one wins
+          orderBy: { effectiveFrom: 'desc' },
         });
 
         return {
           slotId: slot.id,
           slotName: slot.name,
           cutoffTime: slot.cutoffTime,
-          isOn: preference?.isOn ?? false,  // Default: OFF until student explicitly turns ON
+          isOn: preference?.isOn ?? false,  // Default: OFF until explicitly turned ON
           preference: preference?.preference ?? 'VEG',
           source: preference ? ('preference' as const) : ('none' as const),
         };
@@ -93,21 +127,20 @@ export class MealService {
   }
 
   /**
-   * Get meal status for today and upcoming days
+   * Get meal status for today and upcoming 6 days (IST-aware)
    */
   async getMealStatus(userId: string, hostelId: string) {
-    const today = new Date();
-    const todayStr = localDateStr(today);  // e.g. "2026-05-25" in local time
+    const todayStr = istDateStr(new Date());
+    const todayUTC = toUTCDate(todayStr);
 
     const days = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      const dateStr = localDateStr(d);             // Local date string
-      const utcDate = toUTCDate(dateStr);          // UTC midnight for @db.Date queries
-      const status = await this.getEffectiveMealStatus(userId, hostelId, utcDate);
+      const d = new Date(todayUTC);
+      d.setUTCDate(d.getUTCDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      const status = await this.getEffectiveMealStatus(userId, hostelId, d);
       days.push({
-        date: dateStr,  // Return local date string to frontend
+        date: dateStr,
         ...status,
       });
     }
@@ -132,8 +165,8 @@ export class MealService {
 
     const effectiveDate = toUTCDate(data.effectiveFrom);
 
-    // Compute today in local time
-    const todayStr = localDateStr(new Date());
+    // Compute today in IST
+    const todayStr = istDateStr(new Date());
     const todayUTC = toUTCDate(todayStr);
 
     // Reject past dates
@@ -141,14 +174,9 @@ export class MealService {
       throw new Error('CANNOT_MODIFY_PAST');
     }
 
-    // If effective date is today, enforce cutoff
+    // If effective date is today, enforce cutoff in IST
     if (effectiveDate.getTime() === todayUTC.getTime()) {
-      const now = new Date();
-      const [cutoffHour, cutoffMin] = slot.cutoffTime.split(':').map(Number);
-      const cutoff = new Date();
-      cutoff.setHours(cutoffHour, cutoffMin, 0, 0);
-
-      if (now >= cutoff) {
+      if (isCutoffPassedIST(slot.cutoffTime)) {
         throw new Error('CUTOFF_PASSED');
       }
     }
@@ -210,7 +238,7 @@ export class MealService {
   }
 
   /**
-   * Set override for a specific date (checks cutoff time)
+   * Set override for a specific date (checks cutoff time in IST)
    */
   async setOverride(data: {
     userId: string;
@@ -228,21 +256,14 @@ export class MealService {
       throw new Error('MEAL_SLOT_NOT_FOUND');
     }
 
-    // Convert to UTC midnight for @db.Date comparison and storage
     const targetDate = toUTCDate(data.date);
 
-    // Compute today's UTC midnight from local date string (IST-aware)
-    const todayStr = localDateStr(new Date());
+    // Compute today in IST
+    const todayStr = istDateStr(new Date());
     const todayUTC = toUTCDate(todayStr);
 
     if (targetDate.getTime() === todayUTC.getTime()) {
-      // It's for today — check cutoff using local time
-      const now = new Date();
-      const [cutoffHour, cutoffMin] = slot.cutoffTime.split(':').map(Number);
-      const cutoff = new Date();
-      cutoff.setHours(cutoffHour, cutoffMin, 0, 0);  // Local cutoff time
-
-      if (now >= cutoff) {
+      if (isCutoffPassedIST(slot.cutoffTime)) {
         throw new Error('CUTOFF_PASSED');
       }
     } else if (targetDate.getTime() < todayUTC.getTime()) {
@@ -297,28 +318,71 @@ export class MealService {
 
   /**
    * Get meal count for a specific date and slot (Manager view)
+   * High performance O(1) query using PostgreSQL DISTINCT ON
    */
   async getMealCount(hostelId: string, date: string, mealSlotId: string) {
-    const targetDate = toUTCDate(date);  // UTC midnight for @db.Date
+    const targetDate = toUTCDate(date);
 
-    // Get all approved users in the hostel
-    const users = await prisma.user.findMany({
-      where: { hostelId, status: 'APPROVED' },
-      select: { id: true },
+    // 1. Check global meal toggle once
+    const globalToggle = await prisma.globalMealToggle.findFirst({
+      where: { hostelId },
+      orderBy: { toggledAt: 'desc' },
     });
+
+    if (globalToggle && !globalToggle.isMealsEnabled) {
+      const totalStudents = await prisma.user.count({ where: { hostelId, status: 'APPROVED' } });
+      return { totalOn: 0, vegCount: 0, nonVegCount: 0, totalStudents, globalDisabled: true };
+    }
+
+    // 2. Check holidays once
+    const holiday = await prisma.holiday.findFirst({
+      where: {
+        hostelId,
+        mealsDisabled: true,
+        startDate: { lte: targetDate },
+        endDate: { gte: targetDate },
+      },
+    });
+
+    if (holiday) {
+      const totalStudents = await prisma.user.count({ where: { hostelId, status: 'APPROVED' } });
+      return { totalOn: 0, vegCount: 0, nonVegCount: 0, totalStudents, holiday: true };
+    }
+
+    // 3. Fast SQL query using DISTINCT ON to find the latest effective preference for each student
+    type UserPrefRow = {
+      userId: string;
+      preference: 'VEG' | 'NON_VEG';
+      isOn: boolean;
+    };
+
+    const [latestPrefs, totalStudents] = await Promise.all([
+      prisma.$queryRaw<UserPrefRow[]>`
+        SELECT DISTINCT ON (mp."userId")
+          mp."userId",
+          mp."preference",
+          mp."isOn"
+        FROM meal_preferences mp
+        INNER JOIN users u ON u.id = mp."userId"
+        WHERE u."hostelId" = ${hostelId}
+          AND u.status = 'APPROVED'
+          AND mp."mealSlotId" = ${mealSlotId}
+          AND mp."effectiveFrom" <= ${targetDate}
+        ORDER BY mp."userId", mp."effectiveFrom" DESC
+      `,
+      prisma.user.count({
+        where: { hostelId, status: 'APPROVED' },
+      }),
+    ]);
 
     let vegCount = 0;
     let nonVegCount = 0;
     let totalOn = 0;
 
-    for (const user of users) {
-      const status = await this.getEffectiveMealStatus(user.id, hostelId, targetDate);
-      if (status.globalDisabled || status.holiday) continue;
-
-      const slot = status.slots?.find((s: any) => s.slotId === mealSlotId);
-      if (slot?.isOn) {
+    for (const row of latestPrefs) {
+      if (row.isOn) {
         totalOn++;
-        if (slot.preference === 'NON_VEG') {
+        if (row.preference === 'NON_VEG') {
           nonVegCount++;
         } else {
           vegCount++;
@@ -326,50 +390,67 @@ export class MealService {
       }
     }
 
-    return { totalOn, vegCount, nonVegCount, totalStudents: users.length };
+    return { totalOn, vegCount, nonVegCount, totalStudents };
   }
 
   /**
    * Get students with meal ON for a date/slot (Manager view)
+   * High performance O(1) query using PostgreSQL DISTINCT ON
    */
   async getStudentsWithMealOn(hostelId: string, date: string, mealSlotId: string) {
-    const targetDate = toUTCDate(date);  // UTC midnight for @db.Date
+    const targetDate = toUTCDate(date);
 
-    const users = await prisma.user.findMany({
-      where: { hostelId, status: 'APPROVED' },
-      select: {
-        id: true,
-        name: true,
-        rollNumber: true,
-        roomNumber: true,
+    // 1. Check global toggle
+    const globalToggle = await prisma.globalMealToggle.findFirst({
+      where: { hostelId },
+      orderBy: { toggledAt: 'desc' },
+    });
+    if (globalToggle && !globalToggle.isMealsEnabled) return [];
+
+    // 2. Check holiday
+    const holiday = await prisma.holiday.findFirst({
+      where: {
+        hostelId,
+        mealsDisabled: true,
+        startDate: { lte: targetDate },
+        endDate: { gte: targetDate },
       },
     });
+    if (holiday) return [];
 
-    const studentsOn = [];
+    type StudentRow = {
+      id: string;
+      name: string;
+      rollNumber: string;
+      roomNumber: string | null;
+      preference: 'VEG' | 'NON_VEG';
+    };
 
-    for (const user of users) {
-      const status = await this.getEffectiveMealStatus(user.id, hostelId, targetDate);
-      if (status.globalDisabled || status.holiday) continue;
+    const students = await prisma.$queryRaw<StudentRow[]>`
+      SELECT DISTINCT ON (mp."userId")
+        u.id,
+        u.name,
+        u."rollNumber",
+        u."roomNumber",
+        mp."preference"
+      FROM meal_preferences mp
+      INNER JOIN users u ON u.id = mp."userId"
+      WHERE u."hostelId" = ${hostelId}
+        AND u.status = 'APPROVED'
+        AND mp."mealSlotId" = ${mealSlotId}
+        AND mp."effectiveFrom" <= ${targetDate}
+        AND mp."isOn" = true
+      ORDER BY mp."userId", mp."effectiveFrom" DESC
+    `;
 
-      const slot = status.slots?.find((s: any) => s.slotId === mealSlotId);
-      if (slot?.isOn) {
-        studentsOn.push({
-          ...user,
-          preference: slot.preference,
-        });
-      }
-    }
-
-    return studentsOn;
+    return students.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber) || a.name.localeCompare(b.name));
   }
 
   /**
    * Get today's meal stats per slot — available to all students for transparency
    */
   async getTodayStats(hostelId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = localDateStr(today);
+    const todayStr = istDateStr(new Date());
 
     const mealSlots = await prisma.mealSlot.findMany({
       where: { hostelId },
