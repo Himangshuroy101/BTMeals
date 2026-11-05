@@ -1,0 +1,297 @@
+// BTMeals Database Schema
+// Hostel Mess Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  MAINTENANCE_PREFECT
+  MESS_PREFECT
+  MANAGER
+  STUDENT
+  AUDITOR
+  LIBRARIAN
+  GAME_PREFECT
+  COOKING_STAFF
+}
+
+
+enum NotificationType {
+  MEAL_REMINDER
+  STATUS_CHANGE
+  MENU_UPDATE
+  ROLE_ASSIGNED
+  HOLIDAY
+  GENERAL
+}
+
+// ============================================
+// CORE TABLES
+// ============================================
+
+model Hostel {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users            User[]
+  userRoles        UserRole[]
+  mealSlots        MealSlot[]
+  holidays         Holiday[]
+  globalMealToggle GlobalMealToggle[]
+  weeklyMenus      WeeklyMenu[]
+  notifications    Notification[]
+
+  @@map("hostels")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  hostelId     String
+  phone        String     @unique
+  passwordHash String
+  name         String
+  rollNumber   String
+  roomNumber   String?
+  status       UserStatus @default(PENDING)
+  fcmToken     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  hostel          Hostel           @relation(fields: [hostelId], references: [id])
+  userRoles       UserRole[]       @relation("UserRoles")
+  assignedRoles   UserRole[]       @relation("AssignedBy")
+  mealPreferences MealPreference[]
+  mealOverrides   MealOverride[]
+  attendances     MealAttendance[] @relation("StudentAttendance")
+  markedAttendances MealAttendance[] @relation("MarkedBy")
+  createdHolidays Holiday[]
+  globalToggles   GlobalMealToggle[]
+  menuSets        WeeklyMenu[]
+  notifications   Notification[]
+
+  @@index([hostelId])
+  @@index([phone])
+  @@index([status])
+  @@map("users")
+}
+
+model UserRole {
+  id         String   @id @default(uuid())
+  userId     String
+  hostelId   String
+  role       RoleName
+  year       Int      // Academic year
+  month      Int      @default(0) // 0 = year-wide role; 1-12 = specific month for managers
+  isActive   Boolean  @default(true)
+  assignedAt DateTime @default(now())
+  assignedBy String?
+
+  // Relations
+  user       User   @relation("UserRoles", fields: [userId], references: [id])
+  hostel     Hostel @relation(fields: [hostelId], references: [id])
+  assigner   User?  @relation("AssignedBy", fields: [assignedBy], references: [id])
+
+  @@unique([userId, role, hostelId, year, month])
+  @@index([hostelId, role, year])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+// ============================================
+// MEAL SYSTEM
+// ============================================
+
+model MealSlot {
+  id         String @id @default(uuid())
+  hostelId   String
+  name       String // "Morning" or "Night"
+  cutoffTime String // "07:00" or "17:00" (HH:mm format)
+  sortOrder  Int
+
+  // Relations
+  hostel          Hostel           @relation(fields: [hostelId], references: [id])
+  mealPreferences MealPreference[]
+  mealOverrides   MealOverride[]
+  weeklyMenus     WeeklyMenu[]
+  attendances     MealAttendance[]
+
+  @@unique([hostelId, name])
+  @@map("meal_slots")
+}
+
+model MealPreference {
+  id            String              @id @default(uuid())
+  userId        String
+  mealSlotId    String
+  preference    MealPreference_Type @default(VEG)
+  isOn          Boolean             @default(false)
+  effectiveFrom DateTime            @db.Date  // "This preference applies from this date onwards"
+  updatedAt     DateTime            @updatedAt
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id])
+  mealSlot MealSlot @relation(fields: [mealSlotId], references: [id])
+
+  @@unique([userId, mealSlotId, effectiveFrom])
+  @@index([userId, mealSlotId, effectiveFrom])
+  @@map("meal_preferences")
+}
+
+// Workaround: Prisma can't have model and enum with the same name
+enum MealPreference_Type {
+  VEG
+  NON_VEG
+
+  @@map("meal_preference_type")
+}
+
+model MealOverride {
+  id         String              @id @default(uuid())
+  userId     String
+  mealSlotId String
+  date       DateTime            @db.Date
+  isOn       Boolean
+  preference MealPreference_Type @default(VEG)
+  createdAt  DateTime            @default(now())
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id])
+  mealSlot MealSlot @relation(fields: [mealSlotId], references: [id])
+
+  @@unique([userId, mealSlotId, date])
+  @@index([date])
+  @@map("meal_overrides")
+}
+
+// ============================================
+// HOLIDAYS & GLOBAL CONTROLS
+// ============================================
+
+model Holiday {
+  id            String   @id @default(uuid())
+  hostelId      String
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  reason        String?
+  mealsDisabled Boolean  @default(true)
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  // Relations
+  hostel  Hostel @relation(fields: [hostelId], references: [id])
+  creator User   @relation(fields: [createdBy], references: [id])
+
+  @@index([hostelId, startDate, endDate])
+  @@map("holidays")
+}
+
+model GlobalMealToggle {
+  id             String   @id @default(uuid())
+  hostelId       String
+  isMealsEnabled Boolean  @default(true)
+  toggledBy      String
+  reason         String?
+  toggledAt      DateTime @default(now())
+
+  // Relations
+  hostel  Hostel @relation(fields: [hostelId], references: [id])
+  toggler User   @relation(fields: [toggledBy], references: [id])
+
+  @@index([hostelId])
+  @@map("global_meal_toggles")
+}
+
+// ============================================
+// MENU
+// ============================================
+
+model WeeklyMenu {
+  id         String              @id @default(uuid())
+  hostelId   String
+  mealSlotId String
+  dayOfWeek  Int                 // 0=Sunday, 1=Monday ... 6=Saturday
+  items      Json                // Array of menu item strings
+  menuType   MealPreference_Type @default(VEG)
+  setBy      String
+  updatedAt  DateTime            @updatedAt
+
+  // Relations
+  hostel   Hostel   @relation(fields: [hostelId], references: [id])
+  mealSlot MealSlot @relation(fields: [mealSlotId], references: [id])
+  setter   User     @relation(fields: [setBy], references: [id])
+
+  @@unique([hostelId, mealSlotId, dayOfWeek, menuType])
+  @@map("weekly_menus")
+}
+
+// ============================================
+// ATTENDANCE
+// ============================================
+
+model MealAttendance {
+  id             String              @id @default(uuid())
+  userId         String
+  mealSlotId     String
+  date           DateTime            @db.Date
+  wasPresent     Boolean             @default(false)
+  preferenceUsed MealPreference_Type @default(VEG)
+  markedBy       String
+  markedAt       DateTime            @default(now())
+
+  // Relations
+  user     User     @relation("StudentAttendance", fields: [userId], references: [id])
+  mealSlot MealSlot @relation(fields: [mealSlotId], references: [id])
+  marker   User     @relation("MarkedBy", fields: [markedBy], references: [id])
+
+  @@unique([userId, mealSlotId, date])
+  @@index([date, mealSlotId])
+  @@map("meal_attendances")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  hostelId  String
+  title     String
+  body      String
+  type      NotificationType @default(GENERAL)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id])
+  hostel Hostel @relation(fields: [hostelId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([hostelId])
+  @@map("notifications")
+}
